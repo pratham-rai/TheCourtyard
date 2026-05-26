@@ -1,0 +1,103 @@
+@import "tailwindcss";
+
+@theme {
+  --color-neon-green: #39ff14;
+  --color-electric-blue: #00e5ff;
+  --color-sport-dark: #08080c;
+  --color-sport-charcoal: #12121a;
+}
+
+:root {
+  --background: #08080c;
+  --foreground: #f3f4f6;
+}
+
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family: 'Outfit', sans-serif;
+  overflow-x: hidden;
+}
+
+/* Custom Sports Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #08080c;
+}
+::-webkit-scrollbar-thumb {
+  background: #1e1e2d;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #39ff14;
+}
+
+/* Premium Glow Utilities */
+.neon-glow {
+  box-shadow: 0 0 20px rgba(57, 255, 20, 0.25);
+}
+
+.blue-glow {
+  box-shadow: 0 0 20px rgba(0, 229, 255, 0.25);
+}
+
+.glass-panel {
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.glass-panel-hover:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(57, 255, 20, 0.3);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+}
+
+.glass-nav {
+  background: rgba(8, 8, 12, 0.75);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+/* Bulletproof Full-Page Print Optimizer */
+@media print {
+  body {
+    background-color: white !important;
+    color: black !important;
+  }
+  
+  /* Hide all elements on the screen by default */
+  body * {
+    visibility: hidden !important;
+  }
+  
+  /* Selectively reveal ONLY the target invoice modal and its descendants */
+  .print-invoice-area, .print-invoice-area * {
+    visibility: visible !important;
+  }
+  
+  /* Reposition invoice area to occupy full print bounds */
+  .print-invoice-area {
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    background: white !important;
+    color: black !important;
+    box-shadow: none !important;
+    border: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+  
+  /* Hide close and print action buttons */
+  .no-print {
+    display: none !important;
+    visibility: hidden !important;
+  }
+}
