@@ -306,7 +306,7 @@ export function AppProvider({ children }) {
       {children}
 
       {/* Floating Modern Toast Stack Container */}
-      <div className="fixed bottom-6 right-6 z-[9999] flex flex-col gap-3 max-w-sm w-full">
+      <div className="fixed bottom-6 left-6 z-[9999] flex flex-col gap-3 max-w-sm w-full">
         {toasts.map((toast) => (
           <div
             key={toast.id}

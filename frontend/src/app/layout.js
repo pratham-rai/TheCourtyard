@@ -3,6 +3,7 @@ import { Outfit } from "next/font/google";
 import "./globals.css";
 import { AppProvider } from "@/context/AppContext";
 import { GoogleOAuthProvider } from '@react-oauth/google';
+import Chatbot from "@/components/Chatbot";
 
 const outfit = Outfit({
   subsets: ["latin"],
@@ -30,6 +31,7 @@ export default function RootLayout({ children }) {
         <GoogleOAuthProvider clientId={googleClientId}>
           <AppProvider>
             {children}
+            <Chatbot />
           </AppProvider>
         </GoogleOAuthProvider>
       </body>

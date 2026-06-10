@@ -6,6 +6,23 @@ import { useApp } from '@/context/AppContext';
 import { Navbar, BottomNav, Footer } from '@/components/Navigation';
 import { Star, Calendar, Clock, CheckCircle, BookOpen, ArrowRight, ShieldCheck, RefreshCw, Sparkles, User, Users } from 'lucide-react';
 
+const formatDateDMY = (dateInput) => {
+  if (!dateInput) return '';
+  const dateStr = String(dateInput);
+  const parts = dateStr.split('T')[0].split('-');
+  if (parts.length === 3 && parts[0].length === 4) {
+    return `${parts[2]}/${parts[1]}/${parts[0]}`;
+  }
+  const parsedDate = new Date(dateStr);
+  if (!isNaN(parsedDate.getTime())) {
+    const day = String(parsedDate.getDate()).padStart(2, '0');
+    const month = String(parsedDate.getMonth() + 1).padStart(2, '0');
+    const year = parsedDate.getFullYear();
+    return `${day}/${month}/${year}`;
+  }
+  return dateStr;
+};
+
 export default function Coaching() {
   const router = useRouter();
   const { user, setUser, token, API_BASE_URL, showToast } = useApp();
@@ -310,7 +327,7 @@ export default function Coaching() {
                             <div className="grid grid-cols-2 gap-4 mt-4 text-[10px] text-gray-400">
                               <div className="flex items-center gap-1.5 font-bold uppercase">
                                 <Calendar className="w-3.5 h-3.5 text-electric-blue" />
-                                <span>{course.startDate} to {course.endDate}</span>
+                                <span>{formatDateDMY(course.startDate)} to {formatDateDMY(course.endDate)}</span>
                               </div>
                               <div className="flex items-center gap-1.5 font-bold uppercase">
                                 <Clock className="w-3.5 h-3.5 text-electric-blue" />

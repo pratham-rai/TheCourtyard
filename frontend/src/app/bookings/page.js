@@ -9,6 +9,34 @@ import { Calendar as CalIcon, Clock, CreditCard, CheckCircle, Ticket, Info, Aler
 import QRCode from 'react-qr-code';
 import InvoiceModal from '@/components/InvoiceModal';
 
+const getISTTime = () => {
+  const now = new Date();
+  const istTime = new Date(now.getTime() + (5.5 * 60 * 60 * 1000));
+  const year = istTime.getUTCFullYear();
+  const month = String(istTime.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(istTime.getUTCDate()).padStart(2, '0');
+  const dateStr = `${year}-${month}-${day}`;
+  const hour = istTime.getUTCHours();
+  return { dateStr, hour };
+};
+
+const formatDateDMY = (dateInput) => {
+  if (!dateInput) return '';
+  const dateStr = String(dateInput);
+  const parts = dateStr.split('T')[0].split('-');
+  if (parts.length === 3 && parts[0].length === 4) {
+    return `${parts[2]}/${parts[1]}/${parts[0]}`;
+  }
+  const parsedDate = new Date(dateStr);
+  if (!isNaN(parsedDate.getTime())) {
+    const day = String(parsedDate.getDate()).padStart(2, '0');
+    const month = String(parsedDate.getMonth() + 1).padStart(2, '0');
+    const year = parsedDate.getFullYear();
+    return `${day}/${month}/${year}`;
+  }
+  return dateStr;
+};
+
 export default function Bookings() {
   const router = useRouter();
   const { user, setUser, token, API_BASE_URL, showToast } = useApp();
@@ -93,9 +121,13 @@ export default function Bookings() {
     fetchUserProfile();
 
     // Default to tomorrow's date
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    setSelectedDate(tomorrow.toISOString().split('T')[0]);
+    const now = new Date();
+    const tomorrow = new Date(now.getTime() + (24 * 60 * 60 * 1000));
+    const tomorrowIST = new Date(tomorrow.getTime() + (5.5 * 60 * 60 * 1000));
+    const year = tomorrowIST.getUTCFullYear();
+    const month = String(tomorrowIST.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(tomorrowIST.getUTCDate()).padStart(2, '0');
+    setSelectedDate(`${year}-${month}-${day}`);
   }, [token, router]);
 
   // Fetch availability when court or date changes
@@ -121,7 +153,9 @@ export default function Bookings() {
 
   // Handle slot click
   const handleSlotToggle = (hour) => {
-    if (bookedSlots.includes(hour)) return; // disabled
+    const { dateStr: todayStr, hour: currentHour } = getISTTime();
+    const isPast = selectedDate < todayStr || (selectedDate === todayStr && hour <= currentHour);
+    if (bookedSlots.includes(hour) || isPast) return; // disabled
     
     if (selectedSlots.includes(hour)) {
       setSelectedSlots(prev => prev.filter(s => s !== hour));
@@ -243,14 +277,14 @@ export default function Bookings() {
     const finalAmount = bookingConfirmed.totalAmount;
     const computedSubtotal = finalAmount / (1 + gstRate / 100);
     const lineItems = [{
-      description: `Court Reservation: ${selectedCourt?.name || 'Badminton Arena'} (${bookingConfirmed.date})`,
+      description: `Court Reservation: ${selectedCourt?.name || 'Badminton Arena'} (${formatDateDMY(bookingConfirmed.date)})`,
       qty: bookingConfirmed.slots?.length || 1,
       rate: computedSubtotal / (bookingConfirmed.slots?.length || 1)
     }];
     
     setInvoiceModalData({
       invoiceNo: `INV-${bookingConfirmed._id?.slice(-6).toUpperCase() || Math.floor(1000 + Math.random() * 9000)}`,
-      date: new Date(bookingConfirmed.createdAt || Date.now()).toLocaleDateString(),
+      date: formatDateDMY(bookingConfirmed.createdAt || Date.now()),
       type: 'Court Booking',
       member: { name: user?.name, email: user?.email, membership: user?.membership || 'None' },
       items: lineItems,
@@ -298,7 +332,7 @@ export default function Bookings() {
               </div>
               <div className="flex flex-col">
                 <span className="text-[10px] text-gray-500 uppercase tracking-widest font-bold">Date of Play</span>
-                <span className="text-sm font-bold text-neon-green mt-0.5">{bookingConfirmed.date}</span>
+                <span className="text-sm font-bold text-neon-green mt-0.5">{formatDateDMY(bookingConfirmed.date)}</span>
               </div>
               <div className="flex flex-col">
                 <span className="text-[10px] text-gray-500 uppercase tracking-widest font-bold">Hourly Slots</span>
@@ -419,13 +453,19 @@ export default function Bookings() {
                       Step 2: Play Date
                     </h3>
                   </div>
-                  <input
-                    type="date"
-                    value={selectedDate}
-                    onChange={(e) => setSelectedDate(e.target.value)}
-                    min={new Date().toISOString().split('T')[0]}
-                    className="bg-black/50 border border-white/10 hover:border-white/20 focus:border-neon-green/50 text-white rounded-xl px-4 py-3 text-sm outline-none transition-all cursor-pointer font-bold"
-                  />
+                  <div className="relative min-w-[160px]">
+                    <input
+                      type="date"
+                      value={selectedDate}
+                      onChange={(e) => setSelectedDate(e.target.value)}
+                      min={getISTTime().dateStr}
+                      className="bg-black/50 border border-white/10 hover:border-white/20 focus:border-neon-green/50 text-transparent rounded-xl px-4 py-3 text-sm outline-none transition-all cursor-pointer font-bold w-full"
+                      style={{ color: 'transparent' }}
+                    />
+                    <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-white font-bold text-sm">
+                      {formatDateDMY(selectedDate) || 'Select Date'}
+                    </div>
+                  </div>
                 </div>
 
                 {/* STEP 3: SELECT TIME SLOT GRID */}
@@ -460,15 +500,20 @@ export default function Bookings() {
                       const isSel = selectedSlots.includes(hour);
                       // Peak hours are early morning 6am-9am & evening 5pm-10pm
                       const isPeak = (hour >= 6 && hour < 9) || (hour >= 17 && hour < 22);
+                      const { dateStr: todayStr, hour: currentHour } = getISTTime();
+                      const isPast = selectedDate < todayStr || (selectedDate === todayStr && hour <= currentHour);
+                      const isDisabled = isBooked || isPast;
 
                       return (
                         <button
                           key={hour}
                           onClick={() => handleSlotToggle(hour)}
-                          disabled={isBooked}
+                          disabled={isDisabled}
                           className={`py-3.5 px-3 rounded-xl border font-bold text-xs uppercase tracking-wider transition-all duration-200 flex flex-col items-center justify-center gap-1 cursor-pointer select-none ${
                             isBooked
                               ? 'bg-red-500/5 border-red-500/10 text-red-500/40 line-through cursor-not-allowed'
+                              : isPast
+                              ? 'bg-gray-500/5 border-gray-500/10 text-gray-500/30 line-through cursor-not-allowed'
                               : isSel
                               ? 'bg-neon-green text-black border-neon-green neon-glow scale-102'
                               : isPeak
@@ -478,7 +523,7 @@ export default function Bookings() {
                         >
                           <span>{formatHour(hour)}</span>
                           <span className={`text-[8px] font-black uppercase tracking-widest ${isSel ? 'text-black/60' : 'text-gray-500'}`}>
-                            {isBooked ? 'Locked' : isPeak ? `Peak (₹${selectedCourt?.peakPrice})` : `Base (₹${selectedCourt?.basePrice})`}
+                            {isBooked ? 'Locked' : isPast ? 'Passed' : isPeak ? `Peak (₹${selectedCourt?.peakPrice})` : `Base (₹${selectedCourt?.basePrice})`}
                           </span>
                         </button>
                       );
@@ -521,7 +566,7 @@ export default function Bookings() {
                     <div className="space-y-4 text-sm mb-6 border-b border-white/5 pb-6">
                       <div className="flex justify-between">
                         <span className="text-gray-400">Target Date</span>
-                        <span className="text-white font-semibold">{selectedDate || 'Select...'}</span>
+                        <span className="text-white font-semibold">{formatDateDMY(selectedDate) || 'Select...'}</span>
                       </div>
                       <div className="flex justify-between items-start">
                         <span className="text-gray-400">Session Slots</span>

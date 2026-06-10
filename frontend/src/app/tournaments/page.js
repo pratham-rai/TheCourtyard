@@ -6,6 +6,23 @@ import { useApp } from '@/context/AppContext';
 import { Navbar, BottomNav, Footer } from '@/components/Navigation';
 import { Award, Calendar, DollarSign, Users, CheckCircle, ShieldAlert, ArrowRight } from 'lucide-react';
 
+const formatDateDMY = (dateInput) => {
+  if (!dateInput) return '';
+  const dateStr = String(dateInput);
+  const parts = dateStr.split('T')[0].split('-');
+  if (parts.length === 3 && parts[0].length === 4) {
+    return `${parts[2]}/${parts[1]}/${parts[0]}`;
+  }
+  const parsedDate = new Date(dateStr);
+  if (!isNaN(parsedDate.getTime())) {
+    const day = String(parsedDate.getDate()).padStart(2, '0');
+    const month = String(parsedDate.getMonth() + 1).padStart(2, '0');
+    const year = parsedDate.getFullYear();
+    return `${day}/${month}/${year}`;
+  }
+  return dateStr;
+};
+
 export default function Tournaments() {
   const router = useRouter();
   const { user, token, API_BASE_URL, showToast } = useApp();
@@ -111,7 +128,7 @@ export default function Tournaments() {
                     <div className="absolute bottom-4 left-4 right-4 flex justify-between items-end">
                       <div className="flex items-center gap-1.5 text-xs text-neon-green font-bold uppercase tracking-widest">
                         <Calendar className="w-4 h-4" />
-                        {tour.date}
+                        {formatDateDMY(tour.date)}
                       </div>
                       <div className="px-3 py-1 bg-black/75 backdrop-blur-md rounded-lg border border-white/10 text-white text-xs font-bold uppercase flex items-center gap-1">
                         <Users className="w-3.5 h-3.5 text-electric-blue" />

@@ -6,6 +6,23 @@ import { useApp } from '@/context/AppContext';
 import { Navbar, BottomNav, Footer } from '@/components/Navigation';
 import { Award, Calendar, Clock, Shield, User, HelpCircle, Bell, ArrowUpRight, LogOut, RefreshCw, CheckCircle, Sliders, MessageSquare, Plus, ChevronRight, TrendingUp } from 'lucide-react';
 
+const formatDateDMY = (dateInput) => {
+  if (!dateInput) return '';
+  const dateStr = String(dateInput);
+  const parts = dateStr.split('T')[0].split('-');
+  if (parts.length === 3 && parts[0].length === 4) {
+    return `${parts[2]}/${parts[1]}/${parts[0]}`;
+  }
+  const parsedDate = new Date(dateStr);
+  if (!isNaN(parsedDate.getTime())) {
+    const day = String(parsedDate.getDate()).padStart(2, '0');
+    const month = String(parsedDate.getMonth() + 1).padStart(2, '0');
+    const year = parsedDate.getFullYear();
+    return `${day}/${month}/${year}`;
+  }
+  return dateStr;
+};
+
 export default function CoachPortal() {
   const router = useRouter();
   const { user, token, API_BASE_URL, logout, showToast } = useApp();
@@ -362,7 +379,7 @@ export default function CoachPortal() {
                             <div className="space-y-1.5 flex-1">
                               <div className="flex items-center gap-3">
                                 <span className="text-xs font-mono font-bold text-electric-blue uppercase">
-                                  {log.date}
+                                  {formatDateDMY(log.date)}
                                 </span>
                                 <span className="text-[10px] text-gray-500 font-bold uppercase tracking-widest">
                                   Check-in attendance recorded
@@ -424,13 +441,19 @@ export default function CoachPortal() {
               {/* Checkin Date */}
               <div className="flex flex-col gap-1.5">
                 <label className="text-[9px] text-gray-400 uppercase tracking-widest font-bold">Session Date</label>
-                <input
-                  type="date"
-                  value={evalDate}
-                  onChange={(e) => setEvalDate(e.target.value)}
-                  className="w-full bg-black/40 border border-white/10 focus:border-neon-green/50 rounded-xl py-3 px-4 text-xs text-white placeholder-gray-500 outline-none font-mono"
-                  required
-                />
+                <div className="relative w-full">
+                  <input
+                    type="date"
+                    value={evalDate}
+                    onChange={(e) => setEvalDate(e.target.value)}
+                    className="w-full bg-black/40 border border-white/10 focus:border-neon-green/50 rounded-xl py-3 px-4 text-xs text-transparent placeholder-gray-500 outline-none font-mono"
+                    style={{ color: 'transparent' }}
+                    required
+                  />
+                  <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-white font-bold text-xs">
+                    {formatDateDMY(evalDate) || 'Select Date'}
+                  </div>
+                </div>
               </div>
 
               {/* Sliders */}

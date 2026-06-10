@@ -2,6 +2,7 @@
 'use client';
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { useApp } from '@/context/AppContext';
 import { Navbar, BottomNav, Footer } from '@/components/Navigation';
 import { Mail, Lock, User, ArrowRight, ShieldCheck, HelpCircle, Eye, EyeOff, KeyRound, RefreshCw } from 'lucide-react';
@@ -27,6 +28,9 @@ export default function Auth() {
   // Password Visibility state
   const [showPassword, setShowPassword] = useState(false);
 
+  // Registration agreement state
+  const [agreed, setAgreed] = useState(false);
+
   // If already logged in, redirect to appropriate portal
   useEffect(() => {
     if (user) {
@@ -44,6 +48,11 @@ export default function Auth() {
     e.preventDefault();
     if (!email || !password || (!isLogin && !name)) {
       showToast('Please fill in all required fields!', 'error');
+      return;
+    }
+
+    if (!isLogin && !agreed) {
+      showToast('Please agree to the Terms of Club Play & Privacy Policy to register!', 'error');
       return;
     }
 
@@ -353,6 +362,30 @@ export default function Auth() {
                     </button>
                   </div>
                 </div>
+
+                {/* Terms and Privacy checkbox (Register only) */}
+                {!isLogin && (
+                  <div className="flex items-start gap-2.5 my-4 text-xs text-gray-400">
+                    <input
+                      type="checkbox"
+                      id="terms-checkbox"
+                      checked={agreed}
+                      onChange={(e) => setAgreed(e.target.checked)}
+                      className="mt-0.5 rounded border-white/10 bg-black/40 text-neon-green focus:ring-0 focus:ring-offset-0 cursor-pointer w-4 h-4"
+                      required
+                    />
+                    <label htmlFor="terms-checkbox" className="leading-tight cursor-pointer select-none text-left">
+                      I agree to the{' '}
+                      <Link href="/terms" target="_blank" className="text-neon-green hover:underline font-bold">
+                        Terms of Club Play
+                      </Link>{' '}
+                      and{' '}
+                      <Link href="/privacy" target="_blank" className="text-neon-green hover:underline font-bold">
+                        Privacy Policy
+                      </Link>
+                    </label>
+                  </div>
+                )}
 
                 {/* Submit button */}
                 <button

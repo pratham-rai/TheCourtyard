@@ -31,6 +31,17 @@ app.use(express.json());
 const PORT = process.env.PORT || 5000;
 const JWT_SECRET = process.env.JWT_SECRET || 'the_courtyard_jwt_secret_key_2026_premium';
 
+const getISTTime = () => {
+  const now = new Date();
+  const istTime = new Date(now.getTime() + (5.5 * 60 * 60 * 1000));
+  const year = istTime.getUTCFullYear();
+  const month = String(istTime.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(istTime.getUTCDate()).padStart(2, '0');
+  const dateStr = `${year}-${month}-${day}`;
+  const hour = istTime.getUTCHours();
+  return { dateStr, hour };
+};
+
 // ==========================================
 // MIDDLEWARE
 // ==========================================
@@ -508,6 +519,14 @@ app.post('/api/bookings', authenticateToken, async (req, res) => {
     const { courtId, date, slots, paymentId } = req.body;
     if (!courtId || !date || !slots || !slots.length) {
       return res.status(400).json({ error: 'Court ID, Date, and Time slots are required' });
+    }
+
+    const { dateStr: todayStr, hour: currentHour } = getISTTime();
+    if (date < todayStr) {
+      return res.status(400).json({ error: 'Cannot book courts for past dates' });
+    }
+    if (date === todayStr && slots.some(slot => slot <= currentHour)) {
+      return res.status(400).json({ error: 'Cannot book past or in-progress slots for today' });
     }
 
     const court = await Court.findById(courtId);
@@ -1895,6 +1914,14 @@ app.post('/api/admin/scan-qr', authenticateToken, isReceptionOrAdmin, async (req
       });
     }
 
+    // Helper to compute local start/end times of a slot
+    function getSlotTimeRange(dateStr, slotHour) {
+      const [year, month, day] = dateStr.split('-').map(Number);
+      const start = new Date(year, month - 1, day, slotHour, 0, 0, 0);
+      const end = new Date(year, month - 1, day, slotHour + 1, 0, 0, 0);
+      return { start, end };
+    }
+
     // Otherwise, assume it's a standard court booking QR code
     const booking = await Booking.findOne({
       $or: [
@@ -1909,45 +1936,117 @@ app.post('/api/admin/scan-qr', authenticateToken, isReceptionOrAdmin, async (req
       return res.status(404).json({ error: 'No booking found matching this QR code', valid: false });
     }
 
-    // Check if booking is confirmed or cancelled
-    const isValid = booking.status === 'confirmed';
+    // Check if booking is confirmed
+    if (booking.status !== 'confirmed') {
+      return res.status(400).json({ error: `Booking status is ${booking.status}. Check-in rejected.`, valid: false });
+    }
 
-    // Check if the booking date is today or in the future
-    const today = new Date().toISOString().split('T')[0];
-    const isExpired = booking.date < today;
+    const localNow = new Date();
+    const y = localNow.getFullYear();
+    const m = String(localNow.getMonth() + 1).padStart(2, '0');
+    const d = String(localNow.getDate()).padStart(2, '0');
+    const todayStr = `${y}-${m}-${d}`;
 
-    const canCheckIn = isValid && !isExpired;
+    // If the booking date is strictly in the past, it's expired
+    if (booking.date < todayStr) {
+      return res.status(400).json({ error: 'This booking has expired.', valid: false });
+    }
 
-    // Automatically check-in the user if the pass is valid
-    if (canCheckIn && !booking.checkedIn) {
-      booking.checkedIn = true;
-      await booking.save();
+    const sortedSlots = [...booking.slots].sort((a, b) => a - b);
+    const checkedInSlots = booking.checkedInSlots || [];
 
-      // Dispatch instant check-in confirmation notification
-      try {
-        const checkinNotif = new Notification({
-          title: 'Court Check-in Successful',
-          message: `Welcome to The Courtyard! Your check-in on "${booking.court.name}" has been verified successfully. Enjoy your game!`,
-          type: 'booking',
-          user: booking.user._id
-        });
-        await checkinNotif.save();
-      } catch (err) {
-        console.error('Failed to create court check-in notification:', err);
+    // If all slots have already been checked in
+    if (checkedInSlots.length >= sortedSlots.length) {
+      if (!booking.checkedIn) {
+        booking.checkedIn = true;
+        await booking.save();
+      }
+      return res.status(400).json({ error: 'This booking has already been fully checked in.', valid: false });
+    }
+
+    // Helper function to see if a slot's time range is completely in the past
+    const isSlotPast = (slotHour) => {
+      const { end } = getSlotTimeRange(booking.date, slotHour);
+      return localNow > end;
+    };
+
+    let targetSlot = null;
+    let nextWindowStartTime = null;
+
+    for (const slot of sortedSlots) {
+      if (!checkedInSlots.includes(slot)) {
+        const { start, end } = getSlotTimeRange(booking.date, slot);
+        const windowStart = new Date(start.getTime() - 10 * 60 * 1000);
+        const windowEnd = end;
+
+        if (localNow >= windowStart && localNow <= windowEnd) {
+          targetSlot = slot;
+          break;
+        } else if (localNow < windowStart) {
+          nextWindowStartTime = windowStart;
+          targetSlot = -1; // Flag indicating the earliest unchecked slot is in the future
+          break;
+        }
       }
     }
 
+    if (targetSlot === null) {
+      // All unchecked slots are in the past (expired)
+      return res.status(400).json({ error: 'This booking has expired (all slot check-in windows have passed).', valid: false });
+    }
+
+    if (targetSlot === -1) {
+      const hrs = nextWindowStartTime.getHours();
+      const mins = String(nextWindowStartTime.getMinutes()).padStart(2, '0');
+      const ampm = hrs >= 12 ? 'PM' : 'AM';
+      const displayHr = hrs % 12 || 12;
+      const formattedTime = `${displayHr}:${mins} ${ampm}`;
+      return res.status(400).json({
+        error: `Check-in too early. The next check-in window opens at ${formattedTime}.`,
+        valid: false
+      });
+    }
+
+    // We have a valid targetSlot to check in!
+    booking.checkedInSlots = checkedInSlots;
+    booking.checkedInSlots.push(targetSlot);
+
+    // If all slots are checked in or expired, set the main checkedIn status to true
+    const allCheckedInOrPast = sortedSlots.every(slot => 
+      booking.checkedInSlots.includes(slot) || isSlotPast(slot)
+    );
+    
+    if (allCheckedInOrPast) {
+      booking.checkedIn = true;
+    }
+
+    await booking.save();
+
+    // Dispatch instant check-in confirmation notification
+    try {
+      const checkinNotif = new Notification({
+        title: 'Court Check-in Successful',
+        message: `Welcome to The Courtyard! Your check-in for slot ${targetSlot}:00 on "${booking.court.name}" has been verified successfully. Enjoy your game!`,
+        type: 'booking',
+        user: booking.user._id
+      });
+      await checkinNotif.save();
+    } catch (err) {
+      console.error('Failed to create court check-in notification:', err);
+    }
+
     res.json({
-      valid: canCheckIn,
+      valid: true,
       isCoaching: false,
       status: booking.status,
-      isExpired,
+      isExpired: false,
       checkedIn: booking.checkedIn,
       booking: {
         id: booking._id,
         qrCodeData: booking.qrCodeData,
         date: booking.date,
         slots: booking.slots,
+        checkedInSlots: booking.checkedInSlots,
         totalAmount: booking.totalAmount,
         status: booking.status,
         paymentId: booking.paymentId,
@@ -2102,6 +2201,14 @@ app.post('/api/admin/wallet/charge', authenticateToken, isReceptionOrAdmin, asyn
       if (item.isCourtBooking) {
         if (!item.courtId || !item.date || !item.slots || !item.slots.length) {
           return res.status(400).json({ error: 'Court ID, Date, and Time slots are required for spot booking' });
+        }
+
+        const { dateStr: todayStr, hour: currentHour } = getISTTime();
+        if (item.date < todayStr) {
+          return res.status(400).json({ error: `Cannot book courts for past dates: ${item.date}` });
+        }
+        if (item.date === todayStr && item.slots.some(slot => slot <= currentHour)) {
+          return res.status(400).json({ error: `Cannot book past or in-progress slots for today: ${item.slots.filter(s => s <= currentHour).map(s => `${s}:00`).join(', ')}` });
         }
         
         const court = await Court.findById(item.courtId);
@@ -2794,6 +2901,230 @@ const seedInventory = async () => {
     console.error('❌ Failed to seed inventory items: ', err.message);
   }
 };
+
+// ==========================================
+// AI CHATBOT ROUTE
+// ==========================================
+app.post('/api/chat', async (req, res) => {
+  try {
+    const { message, history } = req.body;
+    if (!message) {
+      return res.status(400).json({ error: 'Message is required' });
+    }
+
+    const apiKey = process.env.GEMINI_API_KEY;
+
+    // Define detailed system prompt containing info on courts, coaches, pricing, memberships, tournaments, contact
+    const systemPrompt = `You are "The Courtyard AI Concierge", a premium, friendly, and expert virtual host for The Courtyard club. The Courtyard is a luxury Pickleball & Coaching Club featuring state-of-the-art facilities.
+
+Here is the exact information about the club:
+1. FACILITY & COURTS:
+   - We have 3 premium indoor pickleball courts.
+   - Surface: Professional Acrylic Cushion with tournament-grade LED stadium floodlights and high-contrast boundaries.
+   - Pricing:
+     - Base Price (Off-peak hours): ₹800 per hour.
+     - Peak Price (Peak hours): ₹1200 per hour.
+     - Peak Hours are 6:00 AM - 9:00 AM and 5:00 PM - 10:00 PM. All other times are Off-peak.
+
+2. EXPERT COACHES:
+   - Coach Pratham Raj: Advanced Dinking, Spin Serves, Aggressive Third Shot Drops. Experience: 8 years. Rating: 4.9. Price: ₹1500/session. Availability: Mon, Wed, Fri @ 9:00 AM - 11:00 AM and 3:00 PM - 5:00 PM.
+   - Coach Sarah Jenkins: Beginner Foundations, Paddle Control, Tactical Positioning. Experience: 6 years. Rating: 4.8. Price: ₹1200/session. Availability: Tue, Thu, Sat @ 8:00 AM - 10:00 AM and 2:00 PM - 3:00 PM.
+   - Coach David Miller: Kitchen Reflex Battles, Speed Dinking, Tournament Mindset. Experience: 10 years. Rating: 5.0. Price: ₹1800/session. Availability: Mon-Fri @ 10:00 AM - 11:00 AM and 4:00 PM - 6:00 PM.
+
+3. MEMBERSHIP TIERS:
+   - Basic: ₹999/month. Benefits: 10% court discount, book up to 3 days in advance, 1 free monthly guest pass.
+   - Pro: ₹1,999/month. Benefits: 25% court discount, 10% coaching discount, book up to 7 days in advance, priority locker room access.
+   - Elite: ₹4,999/month. Benefits: 100% FREE court bookings (unlimited off-peak hours), 20% coaching discount, book up to 14 days in advance, free access to premium tournaments.
+
+4. ACTIVE TOURNAMENTS:
+   - The Courtyard Summer Smash 2026: Date: 2026-06-15. Prize Pool: ₹50,000 Cash + Gold Cup. Entry Fee: ₹999. Format: Double-elimination doubles battle.
+   - Kitchen Finesse & Dink Master Cup: Date: 2026-07-02. Prize Pool: ₹25,000 Pickleball Equipment. Entry Fee: ₹499. Format: Focuses on kitchen control, dink angles, and soft drops.
+
+5. COACHING CAMPS / COURSES:
+   - 10 Days Summer Camp: Price ₹3,000 (10 days). Schedule: Mon, Wed, Fri @ 4:00 PM - 5:30 PM. Coach Sarah Jenkins. Focuses on paddle positioning, kitchen control.
+   - 2 Months Professional Course: Price ₹12,000 (2 months). Schedule: Tue, Thu, Sat @ 6:00 PM - 7:30 PM. Coach Pratham Raj. Focuses on tournament prep, advanced reflexes.
+
+6. CONTACT & LOCATION:
+   - Location: 100 Feet Road, Indiranagar, Bengaluru, Karnataka, 560038.
+   - Contact Number: +91 98765 43210.
+   - Email: hello@thecourtyard.com.
+   - Timings: Open daily from 6:00 AM to 11:00 PM.
+
+7. POLICIES:
+   - Court Bookings must be checked in using the QR code. Check-ins open 10 minutes before the slot starts. If multiple hours/slots are booked under one ticket, each slot must be scanned separately when its check-in window opens.
+   - Refunds: Cancel bookings up to 24 hours in advance for a full refund. Same-day cancellations are non-refundable.
+
+Instructions for your personality and behavior:
+- Keep your answers helpful, friendly, and structured. Use formatting (bullet points, bold text) where appropriate.
+- If a user asks to book a court, membership, or coaching, explain that they can do so by registering/logging into the dashboard, navigating to the respective tab ("Book Court", "Coaching", "Tournaments", etc.), selecting their preferences, and checking out.
+- Do not make up information that is not listed here. If you don't know the answer, politely invite them to contact the reception desk at hello@thecourtyard.com or call +91 98765 43210.`;
+
+    if (apiKey) {
+      // Formulate Gemini Request
+      const messages = [];
+      
+      // Feed history
+      if (history && Array.isArray(history)) {
+        history.forEach(h => {
+          messages.push({
+            role: h.role === 'user' ? 'user' : 'model',
+            parts: [{ text: h.content || '' }]
+          });
+        });
+      }
+      
+      // Add current message
+      messages.push({
+        role: 'user',
+        parts: [{ text: message }]
+      });
+
+      const modelsToTry = [
+        'gemini-3.1-flash-lite',
+        'gemini-2.5-flash-lite',
+        'gemini-3.5-flash',
+        'gemini-2.5-flash',
+        'gemini-2.0-flash',
+        'gemini-flash-latest'
+      ];
+
+      let reply = null;
+
+      for (const modelName of modelsToTry) {
+        const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+        const payload = {
+          contents: messages,
+          systemInstruction: {
+            parts: [{ text: systemPrompt }]
+          }
+        };
+
+        try {
+          const response = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+            signal: AbortSignal.timeout(15000)
+          });
+
+          const data = await response.json();
+          if (response.ok && data.candidates && data.candidates[0]?.content?.parts[0]?.text) {
+            reply = data.candidates[0].content.parts[0].text;
+            break; // Succeeded! Exit loop
+          } else {
+            console.warn(`Model ${modelName} call failed. Status: ${response.status}. Error:`, data.error?.message || data);
+          }
+        } catch (err) {
+          console.warn(`Failed to communicate with ${modelName}:`, err.message);
+        }
+      }
+
+      if (reply) {
+        return res.json({ reply });
+      }
+      console.error('All Gemini models failed. Falling back to local concierge.');
+    }
+
+    // --- RULE-BASED FALLBACK CONCIERGE ENGINE ---
+    const lowerMessage = message.toLowerCase();
+    let reply = "";
+
+    if (lowerMessage.includes('court') || lowerMessage.includes('surface') || lowerMessage.includes('indoor') || lowerMessage.includes('acrylic')) {
+      reply = `We have **3 premium indoor pickleball courts** featuring professional shock-absorbent Acrylic Cushion surfaces and tournament-grade LED stadium floodlights.
+      
+**Pricing:**
+- **Off-peak hours:** ₹800 per hour
+- **Peak hours:** ₹1,200 per hour
+
+*Note: Peak hours are from 6:00 AM - 9:00 AM and 5:00 PM - 10:00 PM. You can book them directly in the dashboard under the "Book Court" tab!*`;
+    } 
+    else if (lowerMessage.includes('membership') || lowerMessage.includes('basic') || lowerMessage.includes('pro') || lowerMessage.includes('elite')) {
+      reply = `We offer 3 luxury membership tiers tailored to your play frequency:
+      
+1. **Basic (₹999/mo):** 10% court discount, book 3 days in advance, 1 free monthly guest pass.
+2. **Pro (₹1,999/mo):** 25% court discount, 10% coaching discount, book 7 days in advance, priority locker room access.
+3. **Elite (₹4,999/mo):** **100% FREE** court bookings (unlimited off-peak hours), 20% coaching discount, book 14 days in advance, free access to premium tournaments.
+
+*You can activate memberships directly in the dashboard under the "Memberships" tab!*`;
+    }
+    else if (lowerMessage.includes('coach') || lowerMessage.includes('pratham') || lowerMessage.includes('sarah') || lowerMessage.includes('david') || lowerMessage.includes('trainer') || lowerMessage.includes('coaching')) {
+      reply = `Meet our professional coaching staff:
+      
+- **Coach Pratham Raj (₹1,500/session):** Specializes in Advanced Dinking, Spin Serves, and Aggressive Third Shot Drops (availability: Mon, Wed, Fri @ 9:00-11:00 AM, 3:00-5:00 PM).
+- **Coach Sarah Jenkins (₹1,200/session):** Specializes in Beginner Foundations, Paddle Control, and Tactical Positioning (availability: Tue, Thu, Sat @ 8:00-10:00 AM, 2:00-3:00 PM).
+- **Coach David Miller (₹1,800/session):** Specializes in Kitchen Reflex Battles, Speed Dinking, and Tournament Mindset (availability: Mon-Fri @ 10:00-11:00 AM, 4:00-6:00 PM).
+
+**Our Coaching Camps:**
+- **10 Days Summer Camp (₹3,000):** Mon, Wed, Fri 4:00-5:30 PM with Coach Sarah.
+- **2 Months Professional Course (₹12,000):** Tue, Thu, Sat 6:00-7:30 PM with Coach Pratham.
+
+*Book coaching sessions or enroll in courses directly from your dashboard under the "Coaching" tab!*`;
+    }
+    else if (lowerMessage.includes('tournament') || lowerMessage.includes('smash') || lowerMessage.includes('master cup') || lowerMessage.includes('cup') || lowerMessage.includes('compete')) {
+      reply = `Get ready to compete in our upcoming high-energy tournaments:
+      
+1. **The Courtyard Summer Smash 2026**
+   - **Date:** June 15, 2026
+   - **Prize Pool:** ₹50,000 Cash + Trophy
+   - **Entry Fee:** ₹999 per team
+   - **Format:** Double-elimination doubles battle.
+
+2. **Kitchen Finesse & Dink Master Cup**
+   - **Date:** July 2, 2026
+   - **Prize Pool:** ₹25,000 Pickleball Gear
+   - **Entry Fee:** ₹499 per team
+   - **Format:** Emphasizes kitchen drop shots and reflex dinking battles.
+
+*Register today in your dashboard under the "Tournaments" tab!*`;
+    }
+    else if (lowerMessage.includes('contact') || lowerMessage.includes('phone') || lowerMessage.includes('call') || lowerMessage.includes('email') || lowerMessage.includes('address') || lowerMessage.includes('location') || lowerMessage.includes('where')) {
+      reply = `You can find us or get in touch here:
+      
+📍 **Location:** 100 Feet Road, Indiranagar, Bengaluru, Karnataka, 560038
+📞 **Phone:** +91 98765 43210
+📧 **Email:** hello@thecourtyard.com
+🕒 **Timings:** Open every day from 6:00 AM to 11:00 PM`;
+    }
+    else if (lowerMessage.includes('checkin') || lowerMessage.includes('check in') || lowerMessage.includes('scan') || lowerMessage.includes('qr') || lowerMessage.includes('slot')) {
+      reply = `**Check-in Policies:**
+      
+- When you book a court, a unique QR check-in pass is generated.
+- You can scan the QR code at the reception desk to verify check-in.
+- **Timing Constraint:** Check-in only opens **10 minutes before** your slot start time.
+- **Multi-slot Bookings:** If you book 2 consecutive hours (e.g. 9:00 AM & 10:00 AM), you must scan the same QR code twice (once starting at 8:50 AM, and once starting at 9:50 AM) to check in for each individual hour.`;
+    }
+    else if (lowerMessage.includes('price') || lowerMessage.includes('cost') || lowerMessage.includes('fee') || lowerMessage.includes('rate')) {
+      reply = `Here is a summary of our club rates:
+      
+- **Court Bookings:** Off-peak: ₹800/hr | Peak: ₹1,200/hr (Peak hours: 6:00-9:00 AM and 5:00-10:00 PM).
+- **Personal Coaching:** Sessions starting from ₹1,200/hr to ₹1,800/hr depending on the coach.
+- **Coaching camps:** 10-day camp is ₹3,000. 2-month professional course is ₹12,000.
+- **Memberships:** Basic: ₹999/mo | Pro: ₹1,999/mo | Elite: ₹4,999/mo.
+
+*Members get up to 100% off court bookings and up to 20% off coaching packages!*`;
+    }
+    else {
+      reply = `Hello! Welcome to **The Courtyard AI Concierge**. I can help you with:
+      
+🎾 **Courts & Surface Details**
+💎 **Membership Tiers & Benefits**
+👨‍🏫 **Coach Availability & Rates**
+🏆 **Upcoming Tournaments**
+📍 **Timings, Contact & Location**
+📝 **Check-in Policies & Rules**
+
+What would you like to know more about today? (Type a question or select one of our quick topics below)`;
+    }
+
+    // Append helper message advising of local mode
+    reply += `\n\n*(Concierge running in local offline support mode. To activate full AI intelligence, please set a valid GEMINI_API_KEY in the backend .env file)*`;
+
+    res.json({ reply });
+  } catch (error) {
+    console.error('Chatbot route error:', error);
+    res.status(500).json({ error: 'Failed to process chat message' });
+  }
+});
 
 // ==========================================
 // DATABASE CONNECTION & SERVER LAUNCH

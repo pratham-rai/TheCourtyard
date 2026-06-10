@@ -20,6 +20,23 @@ const LeafletMap = dynamic(
   }
 );
 
+const formatDateDMY = (dateInput) => {
+  if (!dateInput) return '';
+  const dateStr = String(dateInput);
+  const parts = dateStr.split('T')[0].split('-');
+  if (parts.length === 3 && parts[0].length === 4) {
+    return `${parts[2]}/${parts[1]}/${parts[0]}`;
+  }
+  const parsedDate = new Date(dateStr);
+  if (!isNaN(parsedDate.getTime())) {
+    const day = String(parsedDate.getDate()).padStart(2, '0');
+    const month = String(parsedDate.getMonth() + 1).padStart(2, '0');
+    const year = parsedDate.getFullYear();
+    return `${day}/${month}/${year}`;
+  }
+  return dateStr;
+};
+
 export default function Home() {
   const router = useRouter();
   const { user, API_BASE_URL, showToast } = useApp();
@@ -243,19 +260,6 @@ export default function Home() {
                   <p className="text-sm text-gray-400 leading-relaxed mt-4 flex-1">
                     {coach.bio || 'Dynamic coaching progressions customized specifically for beginner dink fundamentals to competitive match tactics.'}
                   </p>
-                  
-                  <div className="flex justify-between items-center border-t border-white/5 pt-5 mt-5">
-                    <div className="flex flex-col">
-                      <span className="text-[10px] text-gray-400 uppercase tracking-wider">Session Charge</span>
-                      <span className="text-xl font-black text-white">₹{coach.pricePerSession} <span className="text-xs text-gray-400 font-normal">/ hr</span></span>
-                    </div>
-                    <Link
-                      href="/coaching"
-                      className="px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white font-bold text-xs uppercase tracking-wider hover:bg-electric-blue hover:text-black hover:border-electric-blue hover:blue-glow transition-all duration-300"
-                    >
-                      Book Session
-                    </Link>
-                  </div>
                 </div>
               </div>
             ))}
@@ -371,7 +375,7 @@ export default function Home() {
                 <div className="p-6 flex-1 flex flex-col justify-between">
                   <div>
                     <span className="text-[10px] text-neon-green uppercase tracking-widest font-bold">
-                      📅 Date: {tour.date}
+                      📅 Date: {formatDateDMY(tour.date)}
                     </span>
                     <h3 className="text-xl font-bold text-white mt-1 group-hover:text-neon-green transition-colors">
                       {tour.title}

@@ -21,9 +21,26 @@ const getSessionCount = (durationStr) => {
   return 10;
 };
 
+const formatDateDMY = (dateInput) => {
+  if (!dateInput) return '';
+  const dateStr = String(dateInput);
+  const parts = dateStr.split('T')[0].split('-');
+  if (parts.length === 3 && parts[0].length === 4) {
+    return `${parts[2]}/${parts[1]}/${parts[0]}`;
+  }
+  const parsedDate = new Date(dateStr);
+  if (!isNaN(parsedDate.getTime())) {
+    const day = String(parsedDate.getDate()).padStart(2, '0');
+    const month = String(parsedDate.getMonth() + 1).padStart(2, '0');
+    const year = parsedDate.getFullYear();
+    return `${day}/${month}/${year}`;
+  }
+  return dateStr;
+};
+
 export default function Dashboard() {
   const router = useRouter();
-  const { user, setUser, token, API_BASE_URL, buyMembership, logout, showToast, createPassword } = useApp();
+  const { user, setUser, token, loading: appLoading, API_BASE_URL, buyMembership, logout, showToast, createPassword } = useApp();
 
   const [activeTab, setActiveTab] = useState('courts'); // courts, coaching, past, ledger
   const [bookings, setBookings] = useState([]);
@@ -217,14 +234,16 @@ export default function Dashboard() {
   }
 
   useEffect(() => {
-    if (!token && !loading) {
+    if (appLoading) return;
+
+    if (!token) {
       router.push('/auth');
     } else if (user?.role === 'admin') {
       router.push('/admin');
     } else {
       fetchDashboardData();
     }
-  }, [token, router]);
+  }, [token, appLoading, router]);
 
   const handleCancelBooking = async (bookingId) => {
     if (!window.confirm('Are you sure you want to cancel this court reservation? Full refund will be credited.')) return;
@@ -262,7 +281,7 @@ export default function Dashboard() {
       const finalAmount = item.amount;
       setInvoiceModalData({
         invoiceNo: `INV-${item.id?.slice(-6).toUpperCase() || Math.floor(1000 + Math.random() * 9000)}`,
-        date: new Date(item.date).toLocaleDateString(),
+        date: formatDateDMY(item.date),
         type: 'Wallet Top-Up',
         member: { name: user?.name, email: user?.email, membership: user?.membership || 'None' },
         items: [{ description: 'Prepaid Wallet Load / Club top-up', qty: 1, rate: finalAmount }],
@@ -282,11 +301,11 @@ export default function Dashboard() {
     const computedSubtotal = finalAmount / (1 + gstRate / 100);
     const lineItems = isCoaching 
       ? [{ description: `Academy Course: ${item.course?.title || 'Coaching Program'}`, qty: 1, rate: computedSubtotal }]
-      : [{ description: `Court Reservation: ${item.court?.name || 'Badminton Arena'} (${item.date})`, qty: item.slots?.length || 1, rate: computedSubtotal / (item.slots?.length || 1) }];
+      : [{ description: `Court Reservation: ${item.court?.name || 'Badminton Arena'} (${formatDateDMY(item.date)})`, qty: item.slots?.length || 1, rate: computedSubtotal / (item.slots?.length || 1) }];
     
     setInvoiceModalData({
       invoiceNo: `INV-${item._id?.slice(-6).toUpperCase() || Math.floor(1000 + Math.random() * 9000)}`,
-      date: new Date(isCoaching ? item.enrolledAt : item.createdAt || Date.now()).toLocaleDateString(),
+      date: formatDateDMY(isCoaching ? item.enrolledAt : item.createdAt || Date.now()),
       type: invoiceType,
       member: { name: user?.name, email: user?.email, membership: user?.membership || 'None' },
       items: lineItems,
@@ -642,7 +661,7 @@ export default function Dashboard() {
                         <div key={notif._id} className="bg-black/30 border border-white/5 p-3.5 rounded-xl">
                           <h4 className="text-xs font-bold text-white flex justify-between items-center">
                             {notif.title}
-                            <span className="text-[8px] font-normal text-gray-500">{new Date(notif.createdAt).toLocaleDateString()}</span>
+                            <span className="text-[8px] font-normal text-gray-500">{formatDateDMY(notif.createdAt)}</span>
                           </h4>
                           <p className="text-xs text-gray-400 mt-1 leading-relaxed">{notif.message}</p>
                         </div>
@@ -717,7 +736,7 @@ export default function Dashboard() {
                           <div className="flex gap-4">
                             <img src={booking.court?.image || 'https://images.unsplash.com/photo-1626224583764-f87db24ac4ea?q=80&w=200'} alt={booking.court?.name} className="w-16 h-16 rounded-xl object-cover shrink-0" />
                             <div className="flex flex-col justify-center">
-                              <span className="text-[9px] text-gray-500 uppercase tracking-wider font-bold">Booking Date: {booking.date}</span>
+                              <span className="text-[9px] text-gray-500 uppercase tracking-wider font-bold">Booking Date: {formatDateDMY(booking.date)}</span>
                               <div className="flex items-center gap-2">
                                 <h4 className="text-base font-bold text-white uppercase tracking-wide">{booking.court?.name || 'Center Court'}</h4>
                                 {booking.checkedIn && (
@@ -789,7 +808,7 @@ export default function Dashboard() {
                             <div className="flex flex-1 gap-4">
                               <img src={course.image || 'https://images.unsplash.com/photo-1526676082484-64c99730ee35?q=80&w=200'} alt={course.title} className="w-16 h-16 rounded-xl object-cover bg-sport-dark shrink-0" />
                               <div className="flex-1 flex flex-col justify-center">
-                                <span className="text-[9px] text-gray-500 uppercase tracking-wider font-bold">Enrolled: {new Date(enrollment.enrolledAt).toLocaleDateString()}</span>
+                                <span className="text-[9px] text-gray-500 uppercase tracking-wider font-bold">Enrolled: {formatDateDMY(enrollment.enrolledAt)}</span>
                                 <h4 className="text-base font-bold text-white uppercase tracking-wide">{course.title}</h4>
                                 <div className="flex flex-wrap gap-x-3 gap-y-1 items-center mt-1 text-xs text-gray-400">
                                   <span className="text-electric-blue font-bold uppercase">Coach {course.coach?.name || 'Unassigned'}</span>
@@ -818,7 +837,7 @@ export default function Dashboard() {
                                     <div className="flex flex-wrap gap-1.5">
                                       {enrollment.attendance.map((dateStr) => (
                                         <span key={dateStr} className="px-2.5 py-0.5 bg-electric-blue/10 border border-electric-blue/20 text-electric-blue text-[9px] font-bold uppercase rounded font-mono">
-                                          {dateStr}
+                                          {formatDateDMY(dateStr)}
                                         </span>
                                       ))}
                                     </div>
@@ -869,7 +888,7 @@ export default function Dashboard() {
                             <div className="flex gap-4">
                               <img src={booking.court?.image || 'https://images.unsplash.com/photo-1626224583764-f87db24ac4ea?q=80&w=200'} alt={booking.court?.name} className="w-16 h-16 rounded-xl object-cover shrink-0 grayscale" />
                               <div className="flex flex-col justify-center">
-                                <span className="text-[9px] text-gray-500 uppercase tracking-wider font-bold">Booking Date: {booking.date} (Completed)</span>
+                                <span className="text-[9px] text-gray-500 uppercase tracking-wider font-bold">Booking Date: {formatDateDMY(booking.date)} (Completed)</span>
                                 <h4 className="text-base font-bold text-white uppercase tracking-wide">{booking.court?.name || 'Center Court'}</h4>
                                 <div className="flex items-center gap-1.5 text-xs text-gray-500 mt-1">
                                   <Clock className="w-3.5 h-3.5 text-gray-500" />
@@ -959,7 +978,7 @@ export default function Dashboard() {
                                 const isDebit = item.amount < 0 || item.itemType === 'Wallet Debit' || item.itemType === 'Debit' || item.description.toLowerCase().includes('spent');
                                 return (
                                   <tr key={idx} className="border-b border-white/5 text-white hover:bg-white/[0.02] transition-colors">
-                                    <td className="py-4 px-5 font-mono text-gray-400">{item.date.toLocaleDateString()}</td>
+                                    <td className="py-4 px-5 font-mono text-gray-400">{formatDateDMY(item.date)}</td>
                                     <td className="py-4 px-5 font-bold">
                                       {item.description}
                                       {item.itemType === 'Wallet Top-Up' && (
@@ -1063,7 +1082,7 @@ export default function Dashboard() {
                   </div>
                   <div>
                     <span className="text-[9px] text-gray-500 uppercase tracking-widest font-bold">Session Date</span>
-                    <p className="font-bold text-neon-green mt-0.5">{selectedTicket.date}</p>
+                    <p className="font-bold text-neon-green mt-0.5">{formatDateDMY(selectedTicket.date)}</p>
                   </div>
                   <div>
                     <span className="text-[9px] text-gray-500 uppercase tracking-widest font-bold">Hourly Slots</span>

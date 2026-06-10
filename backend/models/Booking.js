@@ -11,6 +11,7 @@ const bookingSchema = new mongoose.Schema({
   paymentId: { type: String }, // Razorpay transaction/mock ID
   qrCodeData: { type: String, required: true }, // Unique code for check-in
   checkedIn: { type: Boolean, default: false }, // Whether the user has been scanned in
+  checkedInSlots: [{ type: Number, default: [] }], // Specific slots checked in
   createdAt: { type: Date, default: Date.now }
 });
 

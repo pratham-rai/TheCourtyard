@@ -2,12 +2,29 @@
 import React from 'react';
 import { X, Printer, CheckCircle, FileText } from 'lucide-react';
 
+const formatDateDMY = (dateInput) => {
+  if (!dateInput) return '';
+  const dateStr = String(dateInput);
+  const parts = dateStr.split('T')[0].split('-');
+  if (parts.length === 3 && parts[0].length === 4) {
+    return `${parts[2]}/${parts[1]}/${parts[0]}`;
+  }
+  const parsedDate = new Date(dateStr);
+  if (!isNaN(parsedDate.getTime())) {
+    const day = String(parsedDate.getDate()).padStart(2, '0');
+    const month = String(parsedDate.getMonth() + 1).padStart(2, '0');
+    const year = parsedDate.getFullYear();
+    return `${day}/${month}/${year}`;
+  }
+  return dateStr;
+};
+
 export default function InvoiceModal({ isOpen, onClose, invoiceData }) {
   if (!isOpen || !invoiceData) return null;
 
   const {
     invoiceNo = `INV-2026-${Math.floor(1000 + Math.random() * 9000)}`,
-    date = new Date().toLocaleDateString(),
+    date = new Date(),
     type = 'Court Booking',
     member = { name: 'Valued Guest', email: '', membership: 'None' },
     items = [],
@@ -106,7 +123,7 @@ export default function InvoiceModal({ isOpen, onClose, invoiceData }) {
             <div className="text-right">
               <h2 className="text-xs font-black uppercase tracking-wider text-neon-green print:text-black">TAX INVOICE</h2>
               <p className="text-xs text-gray-400 print:text-gray-600 mt-1 font-mono">{invoiceNo}</p>
-              <p className="text-[10px] text-gray-500 font-mono mt-0.5">{date}</p>
+              <p className="text-[10px] text-gray-500 font-mono mt-0.5">{formatDateDMY(date)}</p>
             </div>
           </div>
 

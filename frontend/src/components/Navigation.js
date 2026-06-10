@@ -233,8 +233,8 @@ export function Footer() {
         <div className="flex flex-col sm:flex-row justify-between items-center gap-4 text-xs">
           <p>© {new Date().getFullYear()} The Courtyard Club. All rights reserved.</p>
           <div className="flex gap-6">
-            <a href="#" className="hover:text-white transition-colors">Privacy Policy</a>
-            <a href="#" className="hover:text-white transition-colors">Terms of Club Play</a>
+            <Link href="/privacy" className="hover:text-white transition-colors">Privacy Policy</Link>
+            <Link href="/terms" className="hover:text-white transition-colors">Terms of Club Play</Link>
             <a href="#" className="hover:text-white transition-colors">Razorpay Terms</a>
           </div>
         </div>

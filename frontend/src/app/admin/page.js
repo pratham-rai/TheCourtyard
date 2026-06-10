@@ -27,11 +27,37 @@ const getSessionCount = (duration) => {
   return 10;
 };
 
+const getISTTime = () => {
+  const now = new Date();
+  const istTime = new Date(now.getTime() + (5.5 * 60 * 60 * 1000));
+  const year = istTime.getUTCFullYear();
+  const month = String(istTime.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(istTime.getUTCDate()).padStart(2, '0');
+  const dateStr = `${year}-${month}-${day}`;
+  const hour = istTime.getUTCHours();
+  return { dateStr, hour };
+};
 
+const formatDateDMY = (dateInput) => {
+  if (!dateInput) return '';
+  const dateStr = String(dateInput);
+  const parts = dateStr.split('T')[0].split('-');
+  if (parts.length === 3 && parts[0].length === 4) {
+    return `${parts[2]}/${parts[1]}/${parts[0]}`;
+  }
+  const parsedDate = new Date(dateStr);
+  if (!isNaN(parsedDate.getTime())) {
+    const day = String(parsedDate.getDate()).padStart(2, '0');
+    const month = String(parsedDate.getMonth() + 1).padStart(2, '0');
+    const year = parsedDate.getFullYear();
+    return `${day}/${month}/${year}`;
+  }
+  return dateStr;
+};
 
 export default function Admin() {
   const router = useRouter();
-  const { user, token, API_BASE_URL, showToast } = useApp();
+  const { user, token, loading: appLoading, API_BASE_URL, showToast } = useApp();
 
   const [activeTab, setActiveTab] = useState('analytics'); // analytics, bookings, coaching, scanner, block, promo, users, settings
   const [stats, setStats] = useState(null);
@@ -146,7 +172,7 @@ export default function Admin() {
   
   // Spot Court Booking Scheduler States
   const [spotSelectedCourt, setSpotSelectedCourt] = useState('');
-  const [spotBookingDate, setSpotBookingDate] = useState(new Date().toISOString().split('T')[0]);
+  const [spotBookingDate, setSpotBookingDate] = useState(getISTTime().dateStr);
   const [spotSelectedSlots, setSpotSelectedSlots] = useState([]);
   const [spotPriceOverride, setSpotPriceOverride] = useState('');
   const [courtGridData, setCourtGridData] = useState([]);
@@ -404,6 +430,10 @@ export default function Admin() {
   };
 
   const toggleSlot = (hour) => {
+    const { dateStr: todayStr, hour: currentHour } = getISTTime();
+    const isPast = spotBookingDate < todayStr || (spotBookingDate === todayStr && hour <= currentHour);
+    if (isPast) return;
+
     setSpotSelectedSlots(prev => {
       let updated;
       if (prev.includes(hour)) {
@@ -439,7 +469,7 @@ export default function Admin() {
     const cartItem = {
       id: `court_booking_${Date.now()}`,
       name: `Spot Booking: ${courtName}`,
-      description: `${courtName} booking on ${spotBookingDate} at ${slotsString}`,
+      description: `${courtName} booking on ${formatDateDMY(spotBookingDate)} at ${slotsString}`,
       price: finalPrice,
       rate: finalPrice,
       qty: 1,
@@ -553,7 +583,7 @@ export default function Admin() {
       // Trigger print invoice modal
       setInvoiceModalData({
         invoiceNo: `INV-${Date.now().toString().slice(-6)}`,
-        date: new Date().toLocaleDateString(),
+        date: formatDateDMY(new Date()),
         type: 'Spot Purchase',
         member: {
           name: spotSelectedUser.name,
@@ -690,7 +720,9 @@ export default function Admin() {
 
 
   useEffect(() => {
-    if (!token && !loading) {
+    if (appLoading) return;
+
+    if (!token) {
       router.push('/auth');
       return;
     }
@@ -711,7 +743,7 @@ export default function Admin() {
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
     setBlockDate(tomorrow.toISOString().split('T')[0]);
-  }, [token, user, router]);
+  }, [token, appLoading, user, router]);
 
   // Fetch availability for the admin lock slots tab
   const [bookedSlotsAdmin, setBookedSlotsAdmin] = useState([]);
@@ -1946,7 +1978,7 @@ export default function Admin() {
                                 >
                                   <div>
                                     <span className="text-white text-xs font-bold block">{u.name}</span>
-                                    <span className="text-gray-500 text-[10px] font-medium lowercase block">{u.email}</span>
+                                    <span className="text-gray-500 text-[10px] lowercase block">{u.email}</span>
                                   </div>
                                   <span className="px-2 py-0.5 rounded text-[8px] bg-white/5 border border-white/10 text-gray-400 uppercase font-black">
                                     {u.membership || 'Standard'}
@@ -2049,17 +2081,24 @@ export default function Admin() {
 
                           <div>
                             <label className="text-[9px] text-gray-500 uppercase tracking-widest font-bold block mb-1">Booking Date</label>
-                            <input
-                              type="date"
-                              value={spotBookingDate}
-                              onChange={(e) => {
-                                setSpotBookingDate(e.target.value);
-                                setSpotSelectedSlots([]);
-                                setSpotPriceOverride('');
-                              }}
-                              disabled={!spotSelectedUser}
-                              className="w-full bg-black/40 border border-white/10 hover:border-white/20 disabled:opacity-40 disabled:pointer-events-none rounded-xl py-3 px-4 text-xs text-white outline-none transition-all"
-                            />
+                            <div className="relative w-full">
+                              <input
+                                type="date"
+                                value={spotBookingDate}
+                                onChange={(e) => {
+                                  setSpotBookingDate(e.target.value);
+                                  setSpotSelectedSlots([]);
+                                  setSpotPriceOverride('');
+                                }}
+                                min={getISTTime().dateStr}
+                                disabled={!spotSelectedUser}
+                                className="w-full bg-black/40 border border-white/10 hover:border-white/20 disabled:opacity-40 disabled:pointer-events-none rounded-xl py-3 px-4 text-xs text-transparent outline-none transition-all cursor-pointer font-bold"
+                                style={{ color: 'transparent' }}
+                              />
+                              <div className={`absolute inset-y-0 left-4 flex items-center pointer-events-none text-white font-bold text-xs ${!spotSelectedUser ? 'opacity-40' : ''}`}>
+                                {formatDateDMY(spotBookingDate) || 'Select Date'}
+                              </div>
+                            </div>
                           </div>
                         </div>
 
@@ -2080,11 +2119,17 @@ export default function Admin() {
                                     b.status !== 'cancelled'
                                   );
 
+                                  const { dateStr: todayStr, hour: currentHour } = getISTTime();
+                                  const isPast = spotBookingDate < todayStr || (spotBookingDate === todayStr && hour <= currentHour);
+                                  const isDisabled = isOccupied || isPast;
+
                                   const isSelected = spotSelectedSlots.includes(hour);
 
                                   let btnClass = 'bg-black/20 hover:bg-black/40 text-gray-300 border border-white/5';
                                   if (isOccupied) {
                                     btnClass = 'bg-red-500/10 text-red-400 border border-red-500/30 cursor-not-allowed';
+                                  } else if (isPast) {
+                                    btnClass = 'bg-gray-500/5 text-gray-500/30 border border-gray-500/10 line-through cursor-not-allowed';
                                   } else if (isSelected) {
                                     btnClass = 'bg-neon-green text-black border border-neon-green font-black shadow-[0_0_15px_rgba(34,197,94,0.3)]';
                                   }
@@ -2093,16 +2138,19 @@ export default function Admin() {
                                     <button
                                       key={hour}
                                       type="button"
-                                      disabled={isOccupied}
+                                      disabled={isDisabled}
                                       onClick={() => toggleSlot(hour)}
                                       className={`py-2 text-[10px] font-bold rounded-lg text-center transition-all ${btnClass} flex flex-col items-center justify-center`}
                                     >
                                       <span className="font-mono">{String(hour).padStart(2, '0')}:00</span>
-                                      {isPeak && !isOccupied && !isSelected && (
+                                      {isPeak && !isOccupied && !isPast && !isSelected && (
                                         <span className="text-[7px] text-yellow-500 font-extrabold uppercase mt-0.5 tracking-tighter">Peak</span>
                                       )}
                                       {isOccupied && (
                                         <span className="text-[7px] text-red-500 font-extrabold uppercase mt-0.5 tracking-tighter">Booked</span>
+                                      )}
+                                      {isPast && (
+                                        <span className="text-[7px] text-gray-600 font-extrabold uppercase mt-0.5 tracking-tighter">Passed</span>
                                       )}
                                       {isSelected && (
                                         <span className="text-[7px] text-black font-extrabold uppercase mt-0.5 tracking-tighter">Active</span>
@@ -2544,7 +2592,7 @@ export default function Admin() {
                       onClick={() => {
                         const headers = ['Date', 'Time', 'Player Name', 'Player Email', 'Description', 'Payment Method', 'Amount (₹)'];
                         const rows = filteredLedger.map(tx => [
-                          new Date(tx.createdAt).toLocaleDateString(),
+                          formatDateDMY(tx.createdAt),
                           new Date(tx.createdAt).toLocaleTimeString(),
                           tx.user?.name || 'Guest',
                           tx.user?.email || 'N/A',
@@ -2681,7 +2729,7 @@ export default function Admin() {
                             filteredLedger.map((tx) => (
                               <tr key={tx._id} className="hover:bg-white/[0.01] transition-colors">
                                 <td className="py-3 px-2 font-mono text-[9px] text-gray-400">
-                                  {new Date(tx.createdAt).toLocaleDateString()}
+                                  {formatDateDMY(tx.createdAt)}
                                 </td>
                                 <td className="py-3 px-2">
                                   <div className="flex flex-col">
@@ -2928,7 +2976,7 @@ export default function Admin() {
                               </div>
                               <div className="flex flex-col">
                                 <span className="text-[10px] text-gray-500 uppercase tracking-widest font-black">Date of Play</span>
-                                <span className="text-sm font-bold text-neon-green mt-0.5">{scanResult.booking.date}</span>
+                                <span className="text-sm font-bold text-neon-green mt-0.5">{formatDateDMY(scanResult.booking.date)}</span>
                               </div>
                               <div className="flex flex-col">
                                 <span className="text-[10px] text-gray-500 uppercase tracking-widest font-black">Time Slots</span>
@@ -2996,14 +3044,20 @@ export default function Admin() {
 
                       <div className="flex flex-col gap-1.5">
                         <label className="text-[10px] text-gray-400 uppercase tracking-widest font-bold">Choose Date</label>
-                        <input
-                          type="date"
-                          value={blockDate}
-                          onChange={(e) => setBlockDate(e.target.value)}
-                          min={new Date().toISOString().split('T')[0]}
-                          className="bg-black/50 border border-white/10 text-white rounded-xl px-4 py-3 text-xs outline-none cursor-pointer font-bold"
-                          required
-                        />
+                        <div className="relative w-full">
+                          <input
+                            type="date"
+                            value={blockDate}
+                            onChange={(e) => setBlockDate(e.target.value)}
+                            min={new Date().toISOString().split('T')[0]}
+                            className="w-full bg-black/50 border border-white/10 text-transparent rounded-xl px-4 py-3 text-xs outline-none cursor-pointer font-bold"
+                            style={{ color: 'transparent' }}
+                            required
+                          />
+                          <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-white font-bold text-xs">
+                            {formatDateDMY(blockDate) || 'Choose Date'}
+                          </div>
+                        </div>
                       </div>
                     </div>
 
@@ -3334,7 +3388,7 @@ export default function Admin() {
                             <td className="py-4 px-3">
                               <div className="flex flex-col">
                                 <span className="text-neon-green font-extrabold">{b.court?.name || 'N/A'}</span>
-                                <span className="text-[9px] text-gray-400 mt-0.5">{b.date}</span>
+                                <span className="text-[9px] text-gray-400 mt-0.5">{formatDateDMY(b.date)}</span>
                               </div>
                             </td>
                             <td className="py-4 px-3">{b.slots?.map(s => `${s}:00`).join(', ')}</td>
@@ -3489,7 +3543,7 @@ export default function Admin() {
                                 <td className="py-4 px-3">
                                   <div className="flex flex-col">
                                     <span className="text-white font-extrabold">{course.schedule}</span>
-                                    <span className="text-[9px] text-gray-400 mt-0.5">{course.startDate} to {course.endDate} ({course.duration})</span>
+                                    <span className="text-[9px] text-gray-400 mt-0.5">{formatDateDMY(course.startDate)} to {formatDateDMY(course.endDate)} ({course.duration})</span>
                                   </div>
                                 </td>
                                 <td className="py-4 px-3">
@@ -3585,9 +3639,9 @@ export default function Admin() {
                                 </td>
                                 <td className="py-4 px-3 text-electric-blue">{c.coach?.name || 'N/A'}</td>
                                 <td className="py-4 px-3">{c.programType}</td>
-                                <td className="py-4 px-3">
+                                <td className="py-4 px-3 font-mono">
                                   <div className="flex flex-col">
-                                    <span className="text-white font-extrabold">{c.date}</span>
+                                    <span className="text-white font-extrabold">{formatDateDMY(c.date)}</span>
                                     <span className="text-[9px] text-gray-400 mt-0.5">{c.slot}:00</span>
                                   </div>
                                 </td>
@@ -3927,7 +3981,7 @@ export default function Admin() {
                                 </div>
                               </div>
                             </td>
-                            <td className="py-4 px-3 text-gray-400 font-mono">{t.date}</td>
+                            <td className="py-4 px-3 text-gray-400 font-mono">{formatDateDMY(t.date)}</td>
                             <td className="py-4 px-3 text-neon-green">{t.prizePool}</td>
                             <td className="py-4 px-3 font-mono text-white">₹{t.entryFee}</td>
                             <td className="py-4 px-3">
@@ -4065,7 +4119,7 @@ export default function Admin() {
                           m.email || '',
                           m.role || 'user',
                           m.membership || 'None',
-                          new Date(m.createdAt).toLocaleDateString()
+                          formatDateDMY(m.createdAt)
                         ]);
                         downloadCSV(headers, rows, 'registered_members');
                       }}
@@ -4113,7 +4167,7 @@ export default function Admin() {
                                 {m.membership}
                               </span>
                             </td>
-                            <td className="py-4 px-3 font-normal text-gray-500">{new Date(m.createdAt).toLocaleDateString()}</td>
+                            <td className="py-4 px-3 font-normal text-gray-500">{formatDateDMY(m.createdAt)}</td>
                             <td className="py-4 px-3">
                               <div className="flex gap-2">
                                 <button
@@ -4416,13 +4470,19 @@ export default function Admin() {
                       </div>
                       <div className="flex flex-col gap-1.5">
                         <label className="text-[9px] text-gray-400 uppercase tracking-widest font-bold">Tournament Date</label>
-                        <input 
-                          type="date"
-                          value={tournamentForm.date}
-                          onChange={(e) => setTournamentForm({...tournamentForm, date: e.target.value})}
-                          className="bg-black/50 border border-white/10 text-white rounded-xl px-4 py-3 text-xs outline-none focus:border-neon-green/50 transition-all font-bold"
-                          required
-                        />
+                        <div className="relative w-full">
+                          <input 
+                            type="date"
+                            value={tournamentForm.date}
+                            onChange={(e) => setTournamentForm({...tournamentForm, date: e.target.value})}
+                            className="w-full bg-black/50 border border-white/10 text-transparent rounded-xl px-4 py-3 text-xs outline-none focus:border-neon-green/50 transition-all font-bold"
+                            style={{ color: 'transparent' }}
+                            required
+                          />
+                          <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-white font-bold text-xs">
+                            {formatDateDMY(tournamentForm.date) || 'Select Date'}
+                          </div>
+                        </div>
                       </div>
                     </div>
 
@@ -4737,23 +4797,35 @@ export default function Admin() {
                     <div className="grid grid-cols-2 gap-4">
                       <div className="flex flex-col gap-1.5">
                         <label className="text-[9px] text-gray-400 uppercase tracking-widest font-bold">Start Date</label>
-                        <input 
-                          type="date"
-                          value={coachingCourseForm.startDate}
-                          onChange={(e) => setCoachingCourseForm({...coachingCourseForm, startDate: e.target.value})}
-                          className="bg-black/50 border border-white/10 text-white rounded-xl px-4 py-3 text-xs outline-none focus:border-neon-green/50 transition-all font-bold"
-                          required
-                        />
+                        <div className="relative w-full">
+                          <input 
+                            type="date"
+                            value={coachingCourseForm.startDate}
+                            onChange={(e) => setCoachingCourseForm({...coachingCourseForm, startDate: e.target.value})}
+                            className="w-full bg-black/50 border border-white/10 text-transparent rounded-xl px-4 py-3 text-xs outline-none focus:border-neon-green/50 transition-all font-bold"
+                            style={{ color: 'transparent' }}
+                            required
+                          />
+                          <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-white font-bold text-xs">
+                            {formatDateDMY(coachingCourseForm.startDate) || 'Select Date'}
+                          </div>
+                        </div>
                       </div>
                       <div className="flex flex-col gap-1.5">
                         <label className="text-[9px] text-gray-400 uppercase tracking-widest font-bold">End Date</label>
-                        <input 
-                          type="date"
-                          value={coachingCourseForm.endDate}
-                          onChange={(e) => setCoachingCourseForm({...coachingCourseForm, endDate: e.target.value})}
-                          className="bg-black/50 border border-white/10 text-white rounded-xl px-4 py-3 text-xs outline-none focus:border-neon-green/50 transition-all font-bold"
-                          required
-                        />
+                        <div className="relative w-full">
+                          <input 
+                            type="date"
+                            value={coachingCourseForm.endDate}
+                            onChange={(e) => setCoachingCourseForm({...coachingCourseForm, endDate: e.target.value})}
+                            className="w-full bg-black/50 border border-white/10 text-transparent rounded-xl px-4 py-3 text-xs outline-none focus:border-neon-green/50 transition-all font-bold"
+                            style={{ color: 'transparent' }}
+                            required
+                          />
+                          <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-white font-bold text-xs">
+                            {formatDateDMY(coachingCourseForm.endDate) || 'Select Date'}
+                          </div>
+                        </div>
                       </div>
                     </div>
 
@@ -5025,12 +5097,18 @@ export default function Admin() {
                     <div className="flex flex-col gap-1.5">
                       <label className="text-[9px] text-gray-400 uppercase tracking-widest font-bold">Select Date to Check-In</label>
                       <div className="flex gap-2">
-                        <input
-                          type="date"
-                          value={attendanceDatePicker}
-                          onChange={(e) => setAttendanceDatePicker(e.target.value)}
-                          className="flex-1 bg-black/50 border border-white/10 text-white rounded-xl px-4 py-2.5 text-xs outline-none focus:border-neon-green/50 transition-all font-mono font-bold"
-                        />
+                        <div className="relative flex-1">
+                          <input
+                            type="date"
+                            value={attendanceDatePicker}
+                            onChange={(e) => setAttendanceDatePicker(e.target.value)}
+                            className="w-full bg-black/50 border border-white/10 text-transparent rounded-xl px-4 py-2.5 text-xs outline-none focus:border-neon-green/50 transition-all font-mono font-bold"
+                            style={{ color: 'transparent' }}
+                          />
+                          <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-white font-bold text-xs">
+                            {formatDateDMY(attendanceDatePicker) || 'Select Date'}
+                          </div>
+                        </div>
                         <button
                           onClick={async () => {
                             if (!attendanceDatePicker) return;
@@ -5075,7 +5153,7 @@ export default function Admin() {
                         <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto pr-1">
                           {selectedEnrollmentForAttendance.attendance.map((dateStr) => (
                             <div key={dateStr} className="flex justify-between items-center bg-white/5 border border-white/5 rounded-lg px-2.5 py-1.5 text-xs">
-                              <span className="font-mono font-bold text-white">{dateStr}</span>
+                              <span className="font-mono font-bold text-white">{formatDateDMY(dateStr)}</span>
                               <button
                                   onClick={async () => {
                                     const updated = selectedEnrollmentForAttendance.attendance.filter(d => d !== dateStr);
@@ -5148,7 +5226,7 @@ export default function Admin() {
               const playerEmail = selectedBookingForQr ? (selectedBookingForQr.user?.email || 'N/A') : (selectedEnrollmentForQr.user?.email || 'N/A');
               const qrValue = selectedBookingForQr ? (selectedBookingForQr.qrCodeData || `CY-CENT-${selectedBookingForQr._id}`) : (selectedEnrollmentForQr.qrCodeData || `CY-ENROLL-${selectedEnrollmentForQr.course?._id || selectedEnrollmentForQr.course}-${selectedEnrollmentForQr.user?._id || selectedEnrollmentForQr.user}`);
               const detail1 = selectedBookingForQr ? `Arena: ${selectedBookingForQr.court?.name || 'N/A'}` : `Course: ${selectedEnrollmentForQr.course?.title || 'N/A'}`;
-              const detail2 = selectedBookingForQr ? `Play Date: ${selectedBookingForQr.date}` : `Schedule: ${selectedEnrollmentForQr.course?.schedule || 'N/A'}`;
+              const detail2 = selectedBookingForQr ? `Play Date: ${formatDateDMY(selectedBookingForQr.date)}` : `Schedule: ${selectedEnrollmentForQr.course?.schedule || 'N/A'}`;
               const detail3 = selectedBookingForQr ? `Time Slots: ${selectedBookingForQr.slots?.map(s => `${s}:00`).join(', ')}` : `Assigned Coach: ${selectedEnrollmentForQr.course?.coach?.name || selectedEnrollmentForQr.course?.coachName || 'Unassigned'}`;
               const passId = selectedBookingForQr ? `CY-BOOKING-${selectedBookingForQr._id.substring(18)}` : `CY-ENROLLMENT-${selectedEnrollmentForQr._id.substring(18)}`;
 
